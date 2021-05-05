@@ -10,7 +10,7 @@ int main() {
 
 	for (int i = 0; i < TEXT_SIZE; i++) {
 		p_strText1[i] = 'a' + i;
-		p_strText2[i] = 'a' + i;
+		p_strText2[i] = 'b' + i;
 	}
 
 	printf("Text1: %s\n", p_strText1);
@@ -21,6 +21,7 @@ int main() {
 	if (bcmp(p_strText1, p_strText2, TEXT_SIZE) == 0) {
 		printf("They are the same with each other.\n");
 	} else {
+		printf("%d",bcmp(p_strText1, p_strText2, TEXT_SIZE));
 		printf("They are different from each other.\n");
 	}
 

@@ -8,7 +8,7 @@ int main() {
 	uint32_t nNetValue = 0;
 
 	printf("Value : 0x%08X\n", nValue);
-	nNetValue = htonl(nValue);
+	nNetValue = ntohs(nValue);
 	printf("nNetValue: 0x%08X\n", nNetValue);
 
 	for (int i = 0; i < 4; i++) {
