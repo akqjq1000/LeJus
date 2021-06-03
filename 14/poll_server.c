@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
 	
 									bzero(strBuffer, BUFSIZ);
 									nBufferLen = sprintf(strBuffer, "[%d] Your ID is [%d]\n", fd, fd);
-									send(rfds[j].fd, strBuffer, nBufferLen, 0);
+									send(rfds[j].fd, encrypt_aes(strBuffer, 1), sizeof(encrypt_aes(strBuffer, 1)), 0);
 									break;
 								}
 							}

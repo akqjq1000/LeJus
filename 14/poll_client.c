@@ -34,8 +34,7 @@ int main(int argc, char* argv[]) {
 			bzero(strBuffer, BUFSIZ);
 			nBufferLen = read(0, strBuffer, BUFSIZ);
 			if (nBufferLen > 0) {
-				send(rfds[1].fd, encrypt_aes(strBuffer, 1), sizeof(encrypt_aes(strBuffer, 1)), 0);
-
+				send(rfds[1].fd, encrypt_aes(strBuffer, 1), sizeof(encrypt_aes(strBuffer, 1)) + 1, 0);
 			}
 		}
 
@@ -43,7 +42,7 @@ int main(int argc, char* argv[]) {
 			bzero(strBuffer, BUFSIZ);
 			nBufferLen = read(rfds[1].fd, strBuffer, BUFSIZ);
 			if (nBufferLen > 0) {
-				printf("%s\n", strBuffer);
+				printf("%s\n", encrypt_aes(strBuffer, 2));
 			}
 		}
 

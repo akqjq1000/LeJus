@@ -1,76 +1,159 @@
 #include "network_common.h"
 #include <sys/poll.h>
+#include <openssl/aes.h>
+
 #define MAX_CLIENTS 10
 
 int main(int argc, char* argv[]) {
-	int sockfd;
-	char strBuffer[BUFSIZ];
+	struct sockaddr_in stCAddr;
+	socklen_t nCAddr;
+
+	struct pollfd rfds[MAX_CLIENTS + 2];
+	int nTimeout = 0;
+	int nRetval;
+
+	int nKeepRunning = 1;
+
+	for (int i = 0; i < MAX_CLIENTS + 2; i++) {
+		rfds[i].fd = -1;
+		rfds[i].events = 0;
+		rfds[i].revents = 0;
+	}
+
+	if (argc != 3) {
+		printf("usage: %s <port> <queue>", argv[0]);
+		return -1;
+	}
+
+	printf("Port : %s\n", argv[1]);
+	printf("Queue: %s\n", argv[2]);
+	if (atoi(argv[2]) > 10) return -1;
+
+	rfds[0].fd = 0;
+	rfds[0].events = POLLIN;
+	rfds[0].revents = 0;
+
+	rfds[1].fd = start_tcp_server(atoi(argv[1]), atoi(argv[2]));
+	if (rfds[1].fd < 0) {
+		printf("Starting Server is failed\n");
+		return -1;
+	}
+
+	rfds[1].events = POLLIN;
+	rfds[1].revents = 0;
+
+	nTimeout = 1000;
+
+	AES_KEY ekey;
+	unsigned char key[16] = {1,2,3,4,5,6,7,8,9,0};
+	unsigned char iv[16] = {1,2,3,4,5,6,7,8,9,0};
+	unsigned char iv_temp[AES_BLOCK_SIZE];
+	int num = 0;
+
+	AES_set_encrypt_key(key, 128, &ekey);
+	memcpy(iv_temp, iv, AES_BLOCK_SIZE);
+
 	char sendMessage[BUFSIZ];
-	int nBufferLen = 0;
-
-	struct sockaddr_in stSAddr;
-	struct sockaddr_in stCAddr[MAX_CLIENTS];
-	struct sockaddr_in stTemp;
-	int thisPort = -1;
-	int nCAddr;
-	char clientID[10][BUFSIZ];
-
-	if (argc != 2) {
-		printf("usage: %s <port>", argv[0]);
-		return -1;
-	}
-
-	sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-	memset(&stSAddr, 0, sizeof(stSAddr));
-	stSAddr.sin_family = AF_INET;
-	stSAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	stSAddr.sin_port = htons(atoi(argv[1]));
-
-	if (bind(sockfd, (struct sockaddr *)&stSAddr, sizeof(stSAddr)) < 0) {
-		printf("Binding Failed...\n");
-		return -1;
-	}
-
-	for (int i = 0; i < MAX_CLIENTS; i++) {
-		stCAddr[i].sin_family = 0;
-		stCAddr[i].sin_addr.s_addr = 0;
-		stCAddr[i].sin_port = 0;
-		bzero(clientID[i], BUFSIZ);
-	}
+	bzero(sendMessage, BUFSIZ);
 
 	do {
-		thisPort = -1;
-		nCAddr = sizeof(stCAddr);
-		memset(strBuffer, 0, BUFSIZ);
-		nBufferLen = recvfrom(sockfd, strBuffer, BUFSIZ, 0, (struct sockaddr *)&stTemp, &nCAddr);
+		nRetval = poll(rfds, MAX_CLIENTS + 2, nTimeout);
+		if (nRetval > 0 ) {
+			for (int i = 0; i < MAX_CLIENTS + 2; i++) {
+				if (rfds[i].fd < 0) continue;
 
-		if (nBufferLen > 0) nBufferLen = sprintf(sendMessage, "[%d]: %s", stTemp.sin_port, strBuffer);
-		else break;
+				if (rfds[i].revents & POLLIN) {
+					if (i == 0) {
+						char strBuffer[BUFSIZ];
+						int nBufferLen = 0;
+						char strBuffer2[BUFSIZ];
+						int nBufferLen2 = 0;
+	
+						bzero(strBuffer, BUFSIZ);
+						bzero(strBuffer2, BUFSIZ);
+						nBufferLen = read(0, strBuffer, BUFSIZ);
+						printf("Input: %s", strBuffer);
+						if (nBufferLen > 0) {
+							if (strncasecmp(strBuffer, "exit", 4) == 0) {
+								nKeepRunning = 0;
+								break;
+							}
+						}
+	
+						nBufferLen2 = sprintf(strBuffer2, "[Server] %s", strBuffer);
 
-		for (int i = 0; i < MAX_CLIENTS; i++) {
-			if (stTemp.sin_port == stCAddr[i].sin_port) {
-				thisPort = i;
-				break;
-			}
-		}
+						memcpy(iv_temp, iv, AES_BLOCK_SIZE);
+						AES_cfb128_encrypt((unsigned char*)strBuffer2, sendMessage, sizeof(strBuffer2), &ekey, iv_temp, &num, AES_ENCRYPT);
 
-		if (thisPort == -1) {
-			for (int i = 0; i < MAX_CLIENTS; i++) {
-				if (stCAddr[i].sin_port == 0) {
-					stCAddr[i] = stTemp;
-					thisPort = stCAddr[i].sin_port;
-					break;
+						for (int j = 2; j < MAX_CLIENTS + 2; j++) {
+							if (rfds[j].fd < 0) continue;
+							send(rfds[j].fd, sendMessage, sizeof(sendMessage), 0);
+						}
+					} else if (i == 1) {
+						printf("Connecting...");
+						int fd = accept(rfds[i].fd, (struct sockaddr *)&stCAddr, &nCAddr);
+						if (fd > 0) {
+							for (int j = 2; j < MAX_CLIENTS + 2; j++) {
+								if (rfds[j].fd < 0) {
+									rfds[j].fd = fd;
+									rfds[j].events = POLLIN;
+									rfds[j].revents = 0;
+	
+									char strBuffer[BUFSIZ];
+									int nBufferLen = 0;
+	
+									bzero(strBuffer, BUFSIZ);
+									nBufferLen = sprintf(strBuffer, "[%d] Your ID is [%d]\n", fd, fd);
+									memcpy(iv_temp, iv, AES_BLOCK_SIZE);
+									printf("%d\n", sizeof(strBuffer));
+									AES_cfb128_encrypt((unsigned char*)strBuffer, sendMessage, sizeof(strBuffer), &ekey, iv_temp, &num, AES_ENCRYPT);
+									send(rfds[j].fd, sendMessage, sizeof(sendMessage), 0);
+									break;
+								}
+							}
+							printf("Success!!!");
+						}
+						printf("\n");
+					} else {
+						char strBuffer[BUFSIZ];
+						int nBufferLen = 0;
+						bzero(strBuffer, BUFSIZ);
+	
+						nBufferLen = read(rfds[i].fd, strBuffer, BUFSIZ);
+						if (nBufferLen <= 0) {
+							printf("A Client(%d) is disconnected. \n", rfds[i].fd);
+							close(rfds[i].fd);
+							rfds[i].fd = -1;
+							rfds[i].events = 0;
+							rfds[i].revents = 0;
+						} else {
+							char strBuffer2[BUFSIZ];
+							int nBufferLen2 = 0;
+							bzero(strBuffer2, BUFSIZ);
+
+							memcpy(iv_temp, iv, AES_BLOCK_SIZE);
+							AES_cfb128_encrypt((unsigned char*)strBuffer, sendMessage, sizeof(strBuffer), &ekey, iv_temp, &num, AES_DECRYPT);
+							printf("%s\n", sendMessage);
+							nBufferLen2 = sprintf(strBuffer2, "[%d] %s", rfds[i].fd, sendMessage);
+
+							memcpy(iv_temp, iv, AES_BLOCK_SIZE);
+							AES_cfb128_encrypt((unsigned char*)strBuffer2, sendMessage, sizeof(strBuffer2), &ekey, iv_temp, &num, AES_ENCRYPT);
+
+							for (int i = 2; i < MAX_CLIENTS + 2; i++) {
+							if (rfds[i].fd < 0) continue;
+								send(rfds[i].fd, sendMessage, sizeof(sendMessage), 0);
+							}
+						}
+					}
 				}
 			}
-		}
+		} else if (nRetval < 0) break;
+	} while (nKeepRunning);
 
-		for (int i = 0; i < MAX_CLIENTS; i++) {
-			if (stCAddr[i].sin_port == 0) break;
-			sendto(sockfd, sendMessage, nBufferLen, 0, (struct sockaddr*)&stCAddr[i], nCAddr);
-		}
-	} while (1);
+	for (int i = 0; i < MAX_CLIENTS + 2; i++) {
+		if (rfds[i].fd > 0) close(rfds[i].fd);
+	}
+	printf("Server Close\n");
 
-	close(sockfd);
 	return 0;
 }
